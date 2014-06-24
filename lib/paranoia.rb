@@ -1,6 +1,17 @@
 require 'active_record' unless defined? ActiveRecord
 
 module Paranoia
+  @@default_sentinel_value = nil
+
+  # Change default_sentinel_value in a rails initilizer
+  def self.default_sentinel_value=(val)
+    @@default_sentinel_value = val
+  end
+
+  def self.default_sentinel_value
+    @@default_sentinel_value
+  end
+
   def self.included(klazz)
     klazz.extend Query
     klazz.extend Callbacks
@@ -33,7 +44,7 @@ module Paranoia
     private
 
     def paranoia_false_value
-      (paranoia_indexed_column == paranoia_column) ? nil : 0
+      (paranoia_indexed_column == paranoia_column) ? paranoia_sentinel_value : 0
     end
   end
 
@@ -78,7 +89,7 @@ module Paranoia
   def restore!(opts = {})
     ActiveRecord::Base.transaction do
       run_callbacks(:restore) do
-        update_column paranoia_column, nil
+        update_column paranoia_column, paranoia_sentinel_value
         update_column(paranoia_flag_column, false) if paranoia_flag_column
         restore_associated_records if opts[:recursive]
       end
@@ -87,7 +98,7 @@ module Paranoia
   alias :restore :restore!
 
   def destroyed?
-    !!send(paranoia_column)
+    send(paranoia_column) != paranoia_sentinel_value
   end
   alias :deleted? :destroyed?
 
@@ -161,13 +172,17 @@ class ActiveRecord::Base
     end
 
     include Paranoia
+
     class_attribute :paranoia_column
     class_attribute :paranoia_flag_column
     class_attribute :paranoia_indexed_column
+    class_attribute :paranoia_sentinel_value
 
     self.paranoia_column = options[:column] || :deleted_at
     self.paranoia_flag_column = options[:flag_column] || nil
     self.paranoia_indexed_column = options[:indexed_column] || paranoia_column
+    self.paranoia_sentinel_value = options.fetch(:sentinel_value) { Paranoia.default_sentinel_value }
+
     default_scope { where(paranoia_indexed_column => paranoia_false_value) }
 
     before_restore {
@@ -211,6 +226,10 @@ class ActiveRecord::Base
 
   def paranoia_column
     self.class.paranoia_column
+  end
+
+  def paranoia_sentinel_value
+    self.class.paranoia_sentinel_value
   end
 end
 
